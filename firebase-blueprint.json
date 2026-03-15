@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with specific roles",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["manager", "secretary", "worker"] },
+        "password": { "type": "string", "description": "Optional password for non-Google users" }
+      },
+      "required": ["name", "email", "role"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Client details and history",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "A work assignment or plumbing job",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "workerId": { "type": "string" },
+        "workerName": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "in-progress", "completed", "cancelled"] },
+        "workerSummary": { "type": "string" },
+        "isSuccess": { "type": "boolean" },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "paid", "partial"] },
+        "amount": { "type": "number" },
+        "secretaryNotes": { "type": "string" }
+      },
+      "required": ["customerId", "date", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer database"
+    },
+    "/jobs/{jobId}": {
+      "schema": "Job",
+      "description": "Job assignments and records"
+    }
+  }
+}
