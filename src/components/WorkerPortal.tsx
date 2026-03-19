@@ -10,7 +10,8 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Job, UserProfile } from '../types';
+import { Job, UserProfile, Language } from '../types';
+import { translations } from '../translations';
 import { 
   Briefcase, 
   Clock, 
@@ -24,7 +25,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 
-export default function WorkerPortal({ profile }: { profile: UserProfile }) {
+export default function WorkerPortal({ profile, language }: { profile: UserProfile, language: Language }) {
+  const t = translations[language];
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [summary, setSummary] = useState('');
@@ -79,25 +81,25 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" dir={language === 'he' ? 'rtl' : 'ltr'}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-stone-900">Worker Portal</h2>
-          <p className="text-stone-500">Manage your assigned plumbing jobs</p>
+          <h2 className="text-2xl font-bold text-stone-900">{t.workerPortal}</h2>
+          <p className="text-stone-500">{t.manageAssignedJobs}</p>
         </div>
         <div className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
-          {jobs.filter(j => j.status === 'completed').length} Completed
+          {jobs.filter(j => j.status === 'completed').length} {t.completed}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Jobs List */}
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-stone-400 uppercase tracking-widest">Active Assignments</h3>
+          <h3 className="text-sm font-bold text-stone-400 uppercase tracking-widest">{t.activeAssignments}</h3>
           {jobs.filter(j => j.status !== 'completed').length === 0 ? (
             <div className="bg-white p-12 rounded-2xl border border-stone-200 text-center text-stone-400">
-              <p>No active assignments. Take a break!</p>
+              <p>{t.noActiveAssignments}</p>
             </div>
           ) : (
             jobs.filter(j => j.status !== 'completed').map(job => (
@@ -110,28 +112,28 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <p className="text-xs font-bold text-emerald-600 uppercase mb-1">{format(job.date, 'MMM d, h:mm a')}</p>
+                    <p className="text-xs font-bold text-emerald-600 uppercase mb-1">{format(job.date, language === 'he' ? 'd בMMM, h:mm a' : 'MMM d, h:mm a')}</p>
                     <h4 className="font-bold text-stone-900">{job.customerName}</h4>
                   </div>
-                  <ChevronRight className={`w-5 h-5 text-stone-300 transition-transform ${selectedJob?.id === job.id ? 'rotate-90' : ''}`} />
+                  <ChevronRight className={`w-5 h-5 text-stone-300 transition-transform ${selectedJob?.id === job.id ? 'rotate-90' : ''} ${language === 'he' ? 'rotate-180' : ''}`} />
                 </div>
                 <p className="text-sm text-stone-600 line-clamp-2">{job.description}</p>
               </motion.button>
             ))
           )}
 
-          <h3 className="text-sm font-bold text-stone-400 uppercase tracking-widest mt-8">Recent History</h3>
+          <h3 className="text-sm font-bold text-stone-400 uppercase tracking-widest mt-8">{t.recentHistory}</h3>
           <div className="space-y-2">
             {jobs.filter(j => j.status === 'completed').slice(0, 5).map(job => (
               <div key={job.id} className="bg-stone-50 p-4 rounded-xl border border-stone-100 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-bold text-stone-900">{job.customerName}</p>
-                  <p className="text-xs text-stone-500">{format(job.date, 'MMM d')}</p>
+                  <p className="text-xs text-stone-500">{format(job.date, language === 'he' ? 'd בMMM' : 'MMM d')}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {job.isSuccess ? <ThumbsUp className="w-4 h-4 text-emerald-500" /> : <ThumbsDown className="w-4 h-4 text-red-500" />}
                   <span className={`text-[10px] font-bold uppercase ${job.paymentStatus === 'paid' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {job.paymentStatus}
+                    {t[job.paymentStatus as keyof typeof t] || job.paymentStatus}
                   </span>
                 </div>
               </div>
@@ -151,7 +153,7 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                 className="space-y-6"
               >
                 <div>
-                  <h3 className="text-2xl font-bold text-stone-900 mb-2">Job Details</h3>
+                  <h3 className="text-2xl font-bold text-stone-900 mb-2">{t.jobDetails}</h3>
                   <div className="flex items-center gap-4 text-sm text-stone-500">
                     <div className="flex items-center gap-1">
                       <Clock className="w-4 h-4" />
@@ -159,13 +161,13 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                     </div>
                     <div className="flex items-center gap-1">
                       <CreditCard className="w-4 h-4" />
-                      ${selectedJob.amount}
+                      ₪{selectedJob.amount}
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-stone-50 p-4 rounded-xl">
-                  <p className="text-sm font-bold text-stone-400 uppercase mb-2">Instructions</p>
+                  <p className="text-sm font-bold text-stone-400 uppercase mb-2">{t.instructions}</p>
                   <p className="text-stone-700">{selectedJob.description}</p>
                 </div>
 
@@ -173,10 +175,10 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-stone-900 flex items-center gap-2">
                       <FileText className="w-4 h-4" />
-                      Work Summary
+                      {t.workSummary}
                     </label>
                     <textarea
-                      placeholder="Describe what you did..."
+                      placeholder={t.describeWhatYouDid}
                       value={summary}
                       onChange={e => setSummary(e.target.value)}
                       className="w-full p-4 bg-stone-50 border border-stone-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/20 h-32"
@@ -191,7 +193,7 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                       }`}
                     >
                       <ThumbsUp className="w-5 h-5" />
-                      Success
+                      {t.success}
                     </button>
                     <button
                       onClick={() => setIsSuccess(false)}
@@ -200,7 +202,7 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                       }`}
                     >
                       <ThumbsDown className="w-5 h-5" />
-                      Failed
+                      {t.failed}
                     </button>
                   </div>
 
@@ -213,7 +215,7 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                       className="w-5 h-5 accent-emerald-500"
                     />
                     <label htmlFor="paid" className="text-sm font-medium text-stone-700">
-                      Payment received on site
+                      {t.paymentReceivedOnSite}
                     </label>
                   </div>
 
@@ -222,14 +224,14 @@ export default function WorkerPortal({ profile }: { profile: UserProfile }) {
                     disabled={isSuccess === null || !summary}
                     className="w-full py-4 bg-stone-900 text-white rounded-xl font-bold hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
-                    Complete Job & Submit
+                    {t.completeJobAndSubmit}
                   </button>
                 </div>
               </motion.div>
             ) : (
               <div className="py-20 text-center text-stone-400">
                 <Briefcase className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                <p>Select an assignment to view details and submit summary</p>
+                <p>{t.selectAssignmentToViewDetails}</p>
               </div>
             )}
           </AnimatePresence>

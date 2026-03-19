@@ -7,7 +7,8 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Job, Customer } from '../types';
+import { Job, Customer, Language } from '../types';
+import { translations } from '../translations';
 import { 
   TrendingUp, 
   Users, 
@@ -31,9 +32,12 @@ import {
 } from 'recharts';
 import { format, startOfMonth, endOfMonth, isWithinInterval, subMonths } from 'date-fns';
 
-export default function Dashboard() {
+export default function Dashboard({ language }: { language: Language }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+
+  const t = translations[language];
+  const isRTL = language === 'he';
 
   useEffect(() => {
     const unsubJobs = onSnapshot(collection(db, 'jobs'), (snapshot) => {
@@ -86,23 +90,23 @@ export default function Dashboard() {
   }).reverse();
 
   const stats = [
-    { label: 'Total Revenue', value: `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'emerald', trend: '+12%' },
-    { label: 'Active Jobs', value: activeJobs, icon: Clock, color: 'blue', trend: '+5%' },
-    { label: 'Total Customers', value: customers.length, icon: Users, color: 'stone', trend: '+2' },
-    { label: 'Pending Payments', value: `$${pendingRevenue.toLocaleString()}`, icon: AlertCircle, color: 'amber', trend: '-3%' },
+    { label: t.totalRevenue, value: `$${totalRevenue.toLocaleString()}`, icon: DollarSign, color: 'emerald', trend: '+12%' },
+    { label: t.activeJobs, value: activeJobs, icon: Clock, color: 'blue', trend: '+5%' },
+    { label: t.totalCustomers, value: customers.length, icon: Users, color: 'stone', trend: '+2' },
+    { label: t.pendingPayments, value: `$${pendingRevenue.toLocaleString()}`, icon: AlertCircle, color: 'amber', trend: '-3%' },
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" dir={isRTL ? 'rtl' : 'ltr'}>
       <div>
-        <h2 className="text-3xl font-bold text-stone-900 tracking-tight">Executive Overview</h2>
-        <p className="text-stone-500">Real-time performance metrics for Palmer Plumbing</p>
+        <h2 className="text-3xl font-bold text-stone-900 tracking-tight">{t.executiveOverview}</h2>
+        <p className="text-stone-500">{t.precisionPlumbing}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-start mb-4">
+            <div className={`flex justify-between items-start mb-4 ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
               <div className={`p-3 rounded-xl bg-${stat.color}-50 text-${stat.color}-600`}>
                 <stat.icon className="w-6 h-6" />
               </div>
@@ -120,11 +124,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Revenue Chart */}
         <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-stone-200 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-bold text-stone-900">Revenue Performance</h3>
+          <div className={`flex items-center justify-between mb-8 ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
+            <h3 className="text-lg font-bold text-stone-900">{t.revenuePerformance}</h3>
             <select className="bg-stone-50 border border-stone-200 rounded-lg px-3 py-1 text-sm outline-none">
-              <option>Last 6 Months</option>
-              <option>Last Year</option>
+              <option>{t.last6Months}</option>
             </select>
           </div>
           <div className="h-[300px] w-full">
@@ -138,7 +141,7 @@ export default function Dashboard() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#a8a29e', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#a8a29e', fontSize: 12}} tickFormatter={(val) => `$${val}`} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#a8a29e', fontSize: 12}} tickFormatter={(val) => `$${val}`} orientation={isRTL ? 'right' : 'left'} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#1c1917', border: 'none', borderRadius: '12px', color: '#fff' }}
                   itemStyle={{ color: '#10b981' }}
@@ -151,27 +154,24 @@ export default function Dashboard() {
 
         {/* Recent Activity */}
         <div className="bg-white p-8 rounded-2xl border border-stone-200 shadow-sm">
-          <h3 className="text-lg font-bold text-stone-900 mb-6">Recent Successes</h3>
+          <h3 className="text-lg font-bold text-stone-900 mb-6">{t.recentSuccesses}</h3>
           <div className="space-y-6">
             {jobs.filter(j => j.status === 'completed').slice(0, 5).map(job => (
-              <div key={job.id} className="flex gap-4">
+              <div key={job.id} className={`flex gap-4 ${isRTL ? 'flex-row-reverse' : 'flex-row'}`}>
                 <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className={`flex-1 min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
                   <p className="text-sm font-bold text-stone-900 truncate">{job.customerName}</p>
                   <p className="text-xs text-stone-500 truncate">{job.workerName} • {format(job.date, 'MMM d')}</p>
                 </div>
-                <div className="text-right">
+                <div className={isRTL ? 'text-left' : 'text-right'}>
                   <p className="text-sm font-bold text-emerald-600">+${job.amount}</p>
-                  <p className="text-[10px] text-stone-400 uppercase font-bold">Paid</p>
+                  <p className="text-[10px] text-stone-400 uppercase font-bold">{t.paid}</p>
                 </div>
               </div>
             ))}
           </div>
-          <button className="w-full mt-8 py-3 text-sm font-bold text-stone-500 hover:text-stone-900 border-t border-stone-100 transition-colors">
-            View All Transactions
-          </button>
         </div>
       </div>
     </div>

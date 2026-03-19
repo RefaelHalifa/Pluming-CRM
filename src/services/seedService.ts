@@ -24,8 +24,8 @@ export const seedSampleData = async () => {
 
     // 2. Seed Workers (as profiles, though they need real UIDs to login, we can create dummy ones for UI testing)
     const workers = [
-      { uid: 'worker_1', name: 'Dave Plumber', email: 'dave@palmer.com', role: 'worker' },
-      { uid: 'worker_2', name: 'Steve Pipes', email: 'steve@palmer.com', role: 'worker' },
+      { uid: 'worker_1', name: 'Dave Plumber', email: 'dave@palmer.com', role: 'worker', password: 'password123' },
+      { uid: 'worker_2', name: 'Steve Pipes', email: 'steve@palmer.com', role: 'worker', password: 'password123' },
     ];
 
     for (const worker of workers) {

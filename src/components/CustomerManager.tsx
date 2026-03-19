@@ -10,15 +10,58 @@ import {
   doc,
   updateDoc
 } from 'firebase/firestore';
-import { db } from '../firebase';
-import { Customer } from '../types';
-import { Plus, Search, Phone, Mail, MapPin, Trash2, Edit2, History } from 'lucide-react';
-import { motion } from 'motion/react';
+import { db, auth } from '../firebase';
+import { Customer, Language } from '../types';
+import { translations } from '../translations';
+import { Plus, Search, Phone, Mail, MapPin, Trash2, Edit2, History, AlertTriangle, Loader2, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
-export default function CustomerManager() {
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+export default function CustomerManager({ language }: { language: Language }) {
+  const t = translations[language];
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<Customer | null>(null);
   const [newCustomer, setNewCustomer] = useState({
     name: '',
     email: '',
@@ -36,6 +79,7 @@ export default function CustomerManager() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     try {
       await addDoc(collection(db, 'customers'), {
         ...newCustomer,
@@ -44,7 +88,22 @@ export default function CustomerManager() {
       setNewCustomer({ name: '', email: '', phone: '', address: '' });
       setIsAdding(false);
     } catch (error) {
-      console.error('Error adding customer', error);
+      handleFirestoreError(error, OperationType.WRITE, 'customers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, 'customers', deleteConfirm.id));
+      setDeleteConfirm(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `customers/${deleteConfirm.id}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -54,29 +113,29 @@ export default function CustomerManager() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={language === 'he' ? 'rtl' : 'ltr'}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-stone-900">Customer Database</h2>
-          <p className="text-stone-500">Manage your client relationships and history</p>
+          <h2 className="text-2xl font-bold text-stone-900">{t.customerDatabase}</h2>
+          <p className="text-stone-500">{t.manageClientRelationships}</p>
         </div>
         <button 
           onClick={() => setIsAdding(true)}
           className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/20"
         >
           <Plus className="w-5 h-5" />
-          Add Customer
+          {t.addCustomer}
         </button>
       </div>
 
       <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 w-5 h-5" />
+        <Search className={`absolute ${language === 'he' ? 'right-4' : 'left-4'} top-1/2 -translate-y-1/2 text-stone-400 w-5 h-5`} />
         <input 
           type="text"
-          placeholder="Search by name or phone..."
+          placeholder={t.searchByNameOrPhone}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-white border border-stone-200 rounded-xl py-4 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+          className={`w-full bg-white border border-stone-200 rounded-xl py-4 ${language === 'he' ? 'pr-12 pl-4' : 'pl-12 pr-4'} focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all`}
         />
       </div>
 
@@ -89,27 +148,27 @@ export default function CustomerManager() {
           <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input 
               required
-              placeholder="Full Name"
+              placeholder={t.fullName}
               value={newCustomer.name}
               onChange={e => setNewCustomer({...newCustomer, name: e.target.value})}
               className="p-3 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
             />
             <input 
               required
-              placeholder="Phone Number"
+              placeholder={t.phoneNumber}
               value={newCustomer.phone}
               onChange={e => setNewCustomer({...newCustomer, phone: e.target.value})}
               className="p-3 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
             />
             <input 
               type="email"
-              placeholder="Email Address"
+              placeholder={t.emailAddress}
               value={newCustomer.email}
               onChange={e => setNewCustomer({...newCustomer, email: e.target.value})}
               className="p-3 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
             />
             <input 
-              placeholder="Service Address"
+              placeholder={t.serviceAddress}
               value={newCustomer.address}
               onChange={e => setNewCustomer({...newCustomer, address: e.target.value})}
               className="p-3 bg-stone-50 border border-stone-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
@@ -120,13 +179,13 @@ export default function CustomerManager() {
                 onClick={() => setIsAdding(false)}
                 className="px-6 py-2 text-stone-500 hover:bg-stone-100 rounded-lg transition-colors"
               >
-                Cancel
+                {t.cancel}
               </button>
               <button 
                 type="submit"
                 className="px-6 py-2 bg-stone-900 text-white rounded-lg hover:bg-stone-800 transition-colors"
               >
-                Save Customer
+                {t.saveCustomer}
               </button>
             </div>
           </form>
@@ -147,7 +206,7 @@ export default function CustomerManager() {
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={() => deleteDoc(doc(db, 'customers', customer.id))}
+                  onClick={() => setDeleteConfirm(customer)}
                   className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -174,11 +233,48 @@ export default function CustomerManager() {
 
             <button className="mt-6 w-full py-2 border border-stone-100 rounded-lg text-stone-500 hover:bg-stone-50 hover:text-stone-900 transition-all flex items-center justify-center gap-2 text-sm">
               <History className="w-4 h-4" />
-              View Service History
+              {t.viewServiceHistory}
             </button>
           </motion.div>
         ))}
       </div>
+      <AnimatePresence>
+        {deleteConfirm && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+              dir={language === 'he' ? 'rtl' : 'ltr'}
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-2">{t.confirmDelete}</h3>
+              <p className="text-stone-500 text-sm mb-8">
+                {deleteConfirm.name}
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeleteConfirm(null)}
+                  className="flex-1 py-3 text-stone-500 font-bold hover:bg-stone-50 rounded-xl transition-colors"
+                >
+                  {t.cancel}
+                </button>
+                <button 
+                  onClick={handleDelete}
+                  disabled={loading}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {t.delete}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

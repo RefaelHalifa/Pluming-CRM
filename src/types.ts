@@ -1,4 +1,5 @@
 export type UserRole = 'manager' | 'secretary' | 'worker';
+export type Language = 'en' | 'he';
 
 export interface UserProfile {
   uid: string;
@@ -6,6 +7,7 @@ export interface UserProfile {
   email: string;
   role: UserRole;
   password?: string;
+  language?: Language;
 }
 
 export interface Customer {

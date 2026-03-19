@@ -20,10 +20,12 @@ import {
   query, 
   orderBy,
   where,
+  updateDoc,
   getDocs
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { UserProfile, UserRole } from './types';
+import { UserProfile, UserRole, Language } from './types';
+import { translations } from './translations';
 import { 
   LayoutDashboard, 
   Calendar as CalendarIcon, 
@@ -39,7 +41,8 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Database
+  Database,
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -55,137 +58,157 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'customers' | 'worker' | 'system'>('dashboard');
+  const [error, setError] = useState<string | null>(null);
+  const [language, setLanguage] = useState<Language>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('palmer_language') as Language;
+      return saved || 'en';
+    }
+    return 'en';
+  });
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'customers' | 'team' | 'worker' | 'system'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSwitchingRole, setIsSwitchingRole] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showLoginTips, setShowLoginTips] = useState(false);
+
+  const t = (translations as any)[language];
+  const isRTL = language === 'he';
+
+  const toggleLanguage = async () => {
+    const newLang: Language = language === 'en' ? 'he' : 'en';
+    setLanguage(newLang);
+    localStorage.setItem('palmer_language', newLang);
+    if (user) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), { language: newLang });
+      } catch (err) {
+        console.error("Failed to save language preference", err);
+        // Revert if failed
+        setLanguage(language);
+        localStorage.setItem('palmer_language', language);
+      }
+    }
+  };
 
   const isAdmin = user?.email?.toLowerCase() === 'rafaelhalifa@gmail.com';
   const effectiveRole: UserRole = profile?.role || (isAdmin ? 'manager' : 'worker');
 
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['manager'] },
-    { id: 'calendar', label: 'Calendar', icon: CalendarIcon, roles: ['manager', 'secretary'] },
-    { id: 'customers', label: 'Customers', icon: Users, roles: ['manager', 'secretary'] },
-    { id: 'team', label: 'Team', icon: ShieldCheck, roles: ['manager'] },
-    { id: 'worker', label: 'My Assignments', icon: Briefcase, roles: ['worker', 'manager'] },
-    { id: 'system', label: 'System', icon: Database, roles: ['manager'] },
+    { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard, roles: ['manager'] },
+    { id: 'calendar', label: t.calendar, icon: CalendarIcon, roles: ['manager', 'secretary'] },
+    { id: 'customers', label: t.customers, icon: Users, roles: ['manager', 'secretary'] },
+    { id: 'team', label: t.team, icon: ShieldCheck, roles: ['manager'] },
+    { id: 'worker', label: t.myAssignments, icon: Briefcase, roles: ['worker', 'manager'] },
+    { id: 'system', label: t.system, icon: Database, roles: ['manager'] },
   ];
 
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    
-    // Check for custom session
-    const savedUser = localStorage.getItem('palmer_crm_user');
-    if (savedUser) {
-      const parsed = JSON.parse(savedUser);
-      setUser(parsed.user);
-      setProfile(parsed.profile);
-      setLoading(false);
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      clearTimeout(timeoutId);
-      try {
-        if (firebaseUser) {
-          setUser(firebaseUser);
-          const docRef = doc(db, 'users', firebaseUser.uid);
-          
-          // Use onSnapshot for real-time profile updates
-          const unsubProfile = onSnapshot(docRef, async (docSnap) => {
-            if (docSnap.exists()) {
-              setProfile(docSnap.data() as UserProfile);
-            } else {
-              // Try to find a legacy profile by email
-              const legacyId = firebaseUser.email?.replace(/[^a-zA-Z0-9]/g, '_');
-              if (legacyId) {
-                const legacyRef = doc(db, 'users', legacyId);
-                const legacySnap = await getDoc(legacyRef);
-                
-                if (legacySnap.exists()) {
-                  const legacyData = legacySnap.data() as UserProfile;
-                  const newProfile: UserProfile = {
-                    ...legacyData,
-                    uid: firebaseUser.uid, // Update to the real Firebase UID
-                  };
-                  // Save the migrated profile and delete the legacy one
-                  await setDoc(docRef, newProfile);
-                  await deleteDoc(legacyRef);
-                  setProfile(newProfile);
-                  setLoading(false);
-                  return;
-                }
-              }
-
-              const isDefaultManager = firebaseUser.email?.toLowerCase() === 'rafaelhalifa@gmail.com';
-              const newProfile: UserProfile = {
-                uid: firebaseUser.uid,
-                name: firebaseUser.displayName || 'New User',
-                email: firebaseUser.email || '',
-                role: isDefaultManager ? 'manager' : 'worker',
-              };
-              // Set local profile immediately so UI can proceed
-              setProfile(newProfile);
-              setDoc(docRef, newProfile).catch(err => {
-                const errInfo = {
-                  error: err instanceof Error ? err.message : String(err),
-                  operationType: 'create',
-                  path: `users/${firebaseUser.uid}`,
-                  authInfo: {
-                    userId: firebaseUser.uid,
-                    email: firebaseUser.email,
-                  }
-                };
-                console.error("Error creating profile:", JSON.stringify(errInfo));
-              });
-            }
-            setLoading(false);
-          }, (error) => {
-            const errInfo = {
-              error: error instanceof Error ? error.message : String(error),
-              operationType: 'get',
-              path: `users/${firebaseUser.uid}`,
-              authInfo: {
-                userId: firebaseUser.uid,
-                email: firebaseUser.email,
-              }
-            };
-            console.error("Profile listener error:", JSON.stringify(errInfo));
-            
-            // If we have a user but profile fails, at least set a fallback for the admin
-            if (firebaseUser.email?.toLowerCase() === 'rafaelhalifa@gmail.com') {
-              setProfile({
-                uid: firebaseUser.uid,
-                name: firebaseUser.displayName || 'Admin',
-                email: firebaseUser.email,
-                role: 'manager'
-              });
-            }
-            setLoading(false);
-          });
-
-          return () => unsubProfile();
-        } else {
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error("Auth state error:", error);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      if (!firebaseUser) {
+        setProfile(null);
         setLoading(false);
       }
+    }, (err) => {
+      console.error("Auth error:", err);
+      setError("Failed to connect to authentication service.");
+      setLoading(false);
     });
 
-    // Safety timeout: if auth doesn't respond in 10 seconds, stop loading
-    timeoutId = setTimeout(() => {
-      console.warn("Auth initialization timed out");
-      setLoading(false);
-    }, 10000);
-
-    return () => {
-      unsubscribe();
-      clearTimeout(timeoutId);
-    };
+    return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    setLoading(true);
+    const docRef = doc(db, 'users', user.uid);
+    
+    const unsubscribe = onSnapshot(docRef, async (docSnap) => {
+      try {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as UserProfile;
+          setProfile(data);
+          // Sync language from Firestore if it exists and is different from current state
+          // Use functional update to avoid stale closure of 'language'
+          // Only sync if there are no pending local writes to avoid race conditions
+          if (data.language && !docSnap.metadata.hasPendingWrites) {
+            setLanguage(prev => {
+              if (data.language !== prev) {
+                localStorage.setItem('palmer_language', data.language as Language);
+                return data.language as Language;
+              }
+              return prev;
+            });
+          }
+          setLoading(false);
+        } else {
+          const legacyId = user.email?.replace(/[^a-zA-Z0-9]/g, '_');
+          if (legacyId) {
+            const legacyRef = doc(db, 'users', legacyId);
+            const legacySnap = await getDoc(legacyRef);
+            
+            if (legacySnap.exists()) {
+              const legacyData = legacySnap.data() as UserProfile;
+              const newProfile: UserProfile = {
+                ...legacyData,
+                uid: user.uid,
+                role: user.email?.toLowerCase() === 'rafaelhalifa@gmail.com' ? 'manager' : (legacyData.role || 'worker')
+              };
+              await setDoc(docRef, newProfile);
+              await deleteDoc(legacyRef);
+              setProfile(newProfile);
+              setLoading(false);
+              return;
+            }
+          }
+
+          const isDefaultManager = user.email?.toLowerCase() === 'rafaelhalifa@gmail.com';
+          const newProfile: UserProfile = {
+            uid: user.uid,
+            name: user.displayName || user.email?.split('@')[0] || 'New User',
+            email: user.email || '',
+            role: isDefaultManager ? 'manager' : 'worker',
+            language: language
+          };
+          await setDoc(docRef, newProfile);
+          setProfile(newProfile);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("Profile error:", err);
+        // Fallback for admin
+        if (user.email?.toLowerCase() === 'rafaelhalifa@gmail.com') {
+          setProfile({
+            uid: user.uid,
+            name: user.displayName || 'Admin',
+            email: user.email || '',
+            role: 'manager'
+          });
+        } else {
+          setError("Failed to load user profile.");
+        }
+        setLoading(false);
+      }
+    }, (err) => {
+      console.error("Profile error:", err);
+      // Fallback for admin if firestore is blocked
+      if (user.email?.toLowerCase() === 'rafaelhalifa@gmail.com') {
+        setProfile({
+          uid: user.uid,
+          name: user.displayName || 'Admin',
+          email: user.email || '',
+          role: 'manager'
+        });
+      } else {
+        setError("Failed to load user profile. Please check your connection.");
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   // Ensure active tab is valid for current role
   useEffect(() => {
@@ -200,59 +223,42 @@ export default function App() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState('');
 
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isAuthenticating) return;
+    
     setAuthError('');
+    setIsAuthenticating(true);
     try {
       if (email && password) {
-        if (isSignUp) {
-          // Firebase Auth Sign Up
-          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          const firebaseUser = userCredential.user;
+        try {
+          // Try Firebase Auth Sign In
+          await signInWithEmailAndPassword(auth, email, password);
+        } catch (authErr: any) {
+          // Fallback to Firestore custom password check (for users added by manager)
+          // This is the "best system" for it - bridge manager-added users to Firebase Auth
+          const derivedId = email.replace(/[^a-zA-Z0-9]/g, '_');
+          const docRef = doc(db, 'users', derivedId);
+          const docSnap = await getDoc(docRef);
           
-          // Create Firestore profile for the new user
-          const docRef = doc(db, 'users', firebaseUser.uid);
-          const isDefaultManager = firebaseUser.email?.toLowerCase() === 'rafaelhalifa@gmail.com';
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            name: email.split('@')[0], // Default name from email
-            email: firebaseUser.email || '',
-            role: isDefaultManager ? 'manager' : 'worker',
-          };
-          await setDoc(docRef, newProfile);
-          setUser(firebaseUser);
-          setProfile(newProfile);
-        } else {
-          try {
-            // Try Firebase Auth Sign In
-            await signInWithEmailAndPassword(auth, email, password);
-          } catch (authErr: any) {
-            // Fallback to Firestore custom password check (for legacy users)
-            const derivedId = email.replace(/[^a-zA-Z0-9]/g, '_');
-            const docRef = doc(db, 'users', derivedId);
-            const docSnap = await getDoc(docRef);
-            
-            if (docSnap.exists()) {
-              const userData = docSnap.data() as UserProfile;
-              if (userData.password === password) {
-                const customUser = {
-                  uid: userData.uid,
-                  email: userData.email,
-                  displayName: userData.name
-                } as any;
-                
-                setUser(customUser);
-                setProfile(userData);
-                localStorage.setItem('palmer_crm_user', JSON.stringify({ user: customUser, profile: userData }));
-              } else {
-                throw authErr; // Re-throw the original auth error if password mismatch
+          if (docSnap.exists()) {
+            const userData = docSnap.data() as UserProfile;
+            if (userData.password === password) {
+              // Automatically create a real Firebase Auth account for them
+              try {
+                await createUserWithEmailAndPassword(auth, email, password);
+                // The onAuthStateChanged will handle the rest
+              } catch (createErr: any) {
+                // If account already exists but sign-in failed (maybe password mismatch in Auth)
+                throw authErr;
               }
             } else {
-              throw authErr; // Re-throw if no Firestore match either
+              throw authErr; 
             }
+          } else {
+            throw authErr; 
           }
         }
       } else {
@@ -261,11 +267,14 @@ export default function App() {
       }
     } catch (error: any) {
       console.error('Authentication failed', error);
-      let message = error.message || 'Authentication failed';
-      if (error.code === 'auth/email-already-in-use') message = 'This email is already registered. Try signing in.';
-      if (error.code === 'auth/weak-password') message = 'Password should be at least 6 characters.';
-      if (error.code === 'auth/invalid-credential') message = 'Invalid email or password.';
+      let message = t.error;
+      if (error.code === 'auth/invalid-credential') message = t.invalidCredentials;
+      if (error.code === 'auth/user-not-found') message = t.userNotFound;
+      if (error.code === 'auth/wrong-password') message = t.wrongPassword;
+      if (error.code === 'auth/too-many-requests') message = t.tooManyRequests;
       setAuthError(message);
+    } finally {
+      setIsAuthenticating(false);
     }
   };
 
@@ -284,7 +293,6 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('palmer_crm_user');
     signOut(auth);
   };
 
@@ -316,23 +324,22 @@ export default function App() {
           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full mb-6"
         />
-        <h2 className="text-xl font-bold text-stone-800 mb-2">Loading Palmer CRM...</h2>
-        <p className="text-stone-500 text-center max-w-xs mb-8">
-          Connecting to secure services. If this takes too long, try refreshing or opening in a new tab.
-        </p>
+        <h2 className="text-xl font-bold text-stone-800 mb-2">{t.loading}</h2>
+        {error ? (
+          <div className="bg-red-50 border border-red-100 p-4 rounded-xl text-red-600 text-sm mb-6 max-w-xs text-center">
+            {error}
+          </div>
+        ) : (
+          <p className="text-stone-500 text-center max-w-xs mb-8">
+            {t.connecting}
+          </p>
+        )}
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <button 
             onClick={() => window.location.reload()}
             className="w-full py-3 bg-stone-900 text-white rounded-xl font-medium hover:bg-stone-800 transition-colors"
           >
-            Refresh Page
-          </button>
-          <button 
-            onClick={() => window.open(window.location.href, '_blank')}
-            className="w-full py-3 border border-stone-200 text-stone-600 rounded-xl font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Open in New Tab
+            {t.refresh}
           </button>
         </div>
       </div>
@@ -341,38 +348,31 @@ export default function App() {
 
   if (!user || !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#E4E3E0] p-4">
+      <div className="min-h-screen flex items-center justify-center bg-[#E4E3E0] p-4" dir={isRTL ? 'rtl' : 'ltr'}>
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-black/5"
+          className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-black/5 relative"
         >
+          <button 
+            onClick={toggleLanguage}
+            className={`absolute top-4 ${isRTL ? 'left-4' : 'right-4'} p-2 hover:bg-stone-100 rounded-full transition-colors flex items-center gap-2 text-xs font-bold text-stone-600`}
+          >
+            <Globe className="w-4 h-4" />
+            {language === 'en' ? 'עברית' : 'English'}
+          </button>
+
           <div className="flex justify-center mb-6">
             <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center">
               <ShieldCheck className="w-10 h-10 text-emerald-600" />
             </div>
           </div>
           <h1 className="text-3xl font-bold text-center mb-2 text-stone-900">Palmer CRM</h1>
-          <p className="text-stone-500 text-center mb-8 italic font-serif">Precision Plumbing Management</p>
+          <p className="text-stone-500 text-center mb-8 italic font-serif">{t.precisionPlumbing}</p>
           
-          <div className="flex bg-stone-100 p-1 rounded-xl mb-6">
-            <button 
-              onClick={() => { setIsSignUp(false); setAuthError(''); }}
-              className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${!isSignUp ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-400'}`}
-            >
-              Sign In
-            </button>
-            <button 
-              onClick={() => { setIsSignUp(true); setAuthError(''); }}
-              className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${isSignUp ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-400'}`}
-            >
-              Sign Up
-            </button>
-          </div>
-
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-stone-500 uppercase">Email Address</label>
+              <label className="text-xs font-bold text-stone-500 uppercase">{t.emailAddress}</label>
               <input 
                 type="email"
                 placeholder="name@company.com"
@@ -382,7 +382,7 @@ export default function App() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-stone-500 uppercase">Password</label>
+              <label className="text-xs font-bold text-stone-500 uppercase">{t.password}</label>
               <input 
                 type="password"
                 placeholder="••••••••"
@@ -390,85 +390,65 @@ export default function App() {
                 onChange={e => setPassword(e.target.value)}
                 className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl outline-none focus:border-emerald-500 transition-all"
               />
-              {!isSignUp && (
-                <button 
-                  type="button"
-                  onClick={handleForgotPassword}
-                  className="text-[10px] font-bold text-stone-400 hover:text-emerald-600 transition-colors uppercase mt-1 ml-1"
-                >
-                  Forgot Password?
-                </button>
-              )}
+              <button 
+                type="button"
+                onClick={handleForgotPassword}
+                className={`text-[10px] font-bold text-stone-400 hover:text-emerald-600 transition-colors uppercase mt-1 ${isRTL ? 'mr-1' : 'ml-1'}`}
+              >
+                {t.forgotPassword}
+              </button>
             </div>
 
             {authError && (
-              <p className="text-xs text-red-500 font-medium">{authError}</p>
+              <div className="bg-red-50 border border-red-100 p-3 rounded-xl text-xs text-red-600 font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {authError}
+              </div>
             )}
 
             <button
               type="submit"
-              className="w-full py-4 bg-stone-900 text-white rounded-xl font-bold hover:bg-stone-800 transition-all shadow-lg shadow-stone-900/10"
+              disabled={isAuthenticating}
+              className={`w-full py-4 bg-stone-900 text-white rounded-xl font-bold hover:bg-stone-800 transition-all shadow-lg shadow-stone-900/10 flex items-center justify-center gap-2 ${isAuthenticating ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
-              {isSignUp ? 'Create Account' : 'Sign In'}
+              {isAuthenticating && <RefreshCw className="w-4 h-4 animate-spin" />}
+              {t.signIn}
             </button>
           </form>
+
+          <div className="mt-6 text-center">
+            <button 
+              onClick={() => setShowLoginTips(!showLoginTips)}
+              className="text-[10px] font-bold text-stone-400 hover:text-emerald-600 transition-colors uppercase flex items-center justify-center gap-1 mx-auto"
+            >
+              <ExternalLink className="w-3 h-3" />
+              {t.loginIssues}
+            </button>
+            {showLoginTips && (
+              <div className="mt-4 p-4 bg-stone-50 border border-stone-100 rounded-xl text-[10px] text-stone-500 text-left leading-relaxed">
+                <p className="font-bold mb-2 text-stone-700">{t.proTip}</p>
+                <p>{t.safariFix}</p>
+              </div>
+            )}
+          </div>
 
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-stone-100"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-stone-400 font-bold">Or continue with</span>
+              <span className="bg-white px-2 text-stone-400 font-bold">{t.orContinueWith}</span>
             </div>
           </div>
 
           <button
             onClick={() => handleLogin()}
-            className="w-full py-3 border border-stone-200 text-stone-600 rounded-xl font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-3"
+            disabled={isAuthenticating}
+            className={`w-full py-3 border border-stone-200 text-stone-600 rounded-xl font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-3 ${isAuthenticating ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            Google Login
+            {t.googleLogin}
           </button>
-
-          <div className="mt-8 pt-6 border-t border-stone-100">
-            <p className="text-sm font-semibold text-stone-900 text-center mb-2">
-              iOS / Safari Login Issues?
-            </p>
-            <p className="text-xs text-stone-500 text-center mb-4 px-4">
-              Safari blocks security cookies in previews. To fix this, open the app directly or copy the link to your browser.
-            </p>
-            
-            <div className="space-y-3">
-              <button
-                onClick={() => window.open(window.location.href, '_blank')}
-                className="w-full py-3 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2 border border-emerald-100"
-              >
-                <ExternalLink className="w-4 h-4" />
-                1. Open in New Tab
-              </button>
-
-              <button
-                onClick={copyLink}
-                className="w-full py-3 border border-stone-200 text-stone-600 rounded-xl text-sm font-medium hover:bg-stone-50 transition-colors flex items-center justify-center gap-2"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4 text-emerald-500" />
-                    Link Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    2. Copy App Link
-                  </>
-                )}
-              </button>
-            </div>
-            
-            <p className="text-[10px] text-stone-400 text-center mt-4 italic">
-              After opening in a new tab, you can sign in normally.
-            </p>
-          </div>
         </motion.div>
       </div>
     );
@@ -477,26 +457,34 @@ export default function App() {
   const filteredTabs = tabs.filter(tab => tab.roles.includes(effectiveRole));
 
   return (
-    <div className="h-[100dvh] bg-[#F5F5F0] flex flex-col md:flex-row overflow-hidden">
+    <div className="h-[100dvh] bg-[#F5F5F0] flex flex-col md:flex-row overflow-hidden" dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-stone-200 p-4 flex items-center justify-between pt-safe">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-6 h-6 text-emerald-600" />
           <span className="font-bold text-stone-900">Palmer CRM</span>
         </div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-          {isSidebarOpen ? <X /> : <Menu />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={toggleLanguage}
+            className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+          >
+            <Globe className="w-5 h-5 text-stone-600" />
+          </button>
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            {isSidebarOpen ? <X /> : <Menu />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar */}
       <AnimatePresence>
         {(isSidebarOpen || window.innerWidth >= 768) && (
           <motion.aside
-            initial={{ x: -300 }}
+            initial={{ x: isRTL ? 300 : -300 }}
             animate={{ x: 0 }}
-            exit={{ x: -300 }}
-            className={`fixed md:static inset-y-0 left-0 z-50 w-64 bg-stone-900 text-stone-300 p-6 pb-safe flex flex-col transform transition-transform md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+            exit={{ x: isRTL ? 300 : -300 }}
+            className={`fixed md:static inset-y-0 ${isRTL ? 'right-0' : 'left-0'} z-50 w-64 bg-stone-900 text-stone-300 p-6 pb-safe flex flex-col transform transition-transform md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : (isRTL ? 'translate-x-full' : '-translate-x-full')}`}
           >
             <div className="hidden md:flex items-center gap-3 mb-10">
               <div className="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center">
@@ -524,11 +512,19 @@ export default function App() {
                 </button>
               ))}
 
+              <button 
+                onClick={toggleLanguage}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 hover:text-white transition-all text-stone-400"
+              >
+                <Globe className="w-5 h-5" />
+                <span className="font-medium">{language === 'en' ? 'עברית' : 'English'}</span>
+              </button>
+
               {isAdmin && (
                 <div className="mt-8 pt-6 border-t border-white/10">
                   <p className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-4 px-4 flex items-center gap-2">
                     <ShieldCheck className="w-3 h-3" />
-                    Role Preview (Dev)
+                    {t.rolePreview}
                   </p>
                   <div className="space-y-1">
                     {(['manager', 'secretary', 'worker'] as UserRole[]).map(role => (
@@ -542,7 +538,7 @@ export default function App() {
                             : 'text-stone-500 hover:text-stone-300 hover:bg-white/5'
                         }`}
                       >
-                        <span className="capitalize">{role}</span>
+                        <span className="capitalize">{t[role]}</span>
                         {effectiveRole === role && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
                         {isSwitchingRole && effectiveRole !== role && <RefreshCw className="w-3 h-3 animate-spin opacity-50" />}
                       </button>
@@ -559,7 +555,7 @@ export default function App() {
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <p className="text-sm font-bold text-white truncate">{profile.name}</p>
-                  <p className="text-xs text-stone-500 capitalize">{effectiveRole}</p>
+                  <p className="text-xs text-stone-500 capitalize">{t[effectiveRole]}</p>
                 </div>
               </div>
               <button
@@ -567,7 +563,7 @@ export default function App() {
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-500/10 hover:text-red-400 transition-all text-stone-400"
               >
                 <LogOut className="w-5 h-5" />
-                <span className="font-medium">Sign Out</span>
+                <span className="font-medium">{t.signOut}</span>
               </button>
             </div>
           </motion.aside>
@@ -577,12 +573,12 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto scrolling-touch">
         <div className="max-w-7xl mx-auto">
-          {activeTab === 'dashboard' && effectiveRole === 'manager' && <Dashboard />}
-          {activeTab === 'calendar' && (effectiveRole === 'manager' || effectiveRole === 'secretary') && <CalendarView role={effectiveRole} />}
-          {activeTab === 'customers' && (effectiveRole === 'manager' || effectiveRole === 'secretary') && <CustomerManager />}
-          {activeTab === 'team' && effectiveRole === 'manager' && <UserManager currentUserEmail={user?.email || ''} />}
-          {activeTab === 'worker' && <WorkerPortal profile={profile} />}
-          {activeTab === 'system' && effectiveRole === 'manager' && <SystemSettings />}
+          {activeTab === 'dashboard' && effectiveRole === 'manager' && <Dashboard language={language} />}
+          {activeTab === 'calendar' && (effectiveRole === 'manager' || effectiveRole === 'secretary') && <CalendarView role={effectiveRole} language={language} />}
+          {activeTab === 'customers' && (effectiveRole === 'manager' || effectiveRole === 'secretary') && <CustomerManager language={language} />}
+          {activeTab === 'team' && effectiveRole === 'manager' && <UserManager currentUserEmail={user?.email || ''} language={language} />}
+          {activeTab === 'worker' && <WorkerPortal profile={profile} language={language} />}
+          {activeTab === 'system' && effectiveRole === 'manager' && <SystemSettings language={language} />}
         </div>
       </main>
     </div>
